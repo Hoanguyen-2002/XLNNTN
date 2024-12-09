@@ -1,0 +1,6 @@
+sentence,gold_pos,gold_dependencies
+I absolutely love this product.,"[('I', 'PRP'), ('absolutely', 'RB'), ('love', 'VB'), ('this', 'DT'), ('product', 'NN')]","[('love', 'I', 'nsubj'), ('love', 'absolutely', 'advmod'), ('love', 'product', 'dobj')]"
+The movie was fantastic!,"[('The', 'DT'), ('movie', 'NN'), ('was', 'VBZ'), ('fantastic', 'JJ')]","[('was', 'movie', 'nsubj'), ('was', 'fantastic', 'acomp')]"
+The service was awful.,"[('The', 'DT'), ('service', 'NN'), ('was', 'VBZ'), ('awful', 'JJ')]","[('was', 'service', 'nsubj'), ('was', 'awful', 'acomp')]"
+I hated this product so much.,"[('I', 'PRP'), ('hated', 'VBD'), ('this', 'DT'), ('product', 'NN'), ('so', 'RB'), ('much', 'RB')]","[('hated', 'I', 'nsubj'), ('hated', 'product', 'dobj'), ('hated', 'much', 'advmod')]"
+This is an amazing application.,"[('This', 'DT'), ('is', 'VBZ'), ('an', 'DT'), ('amazing', 'JJ'), ('application', 'NN')]","[('is', 'This', 'nsubj'), ('is', 'application', 'attr'), ('application', 'amazing', 'amod')]"
