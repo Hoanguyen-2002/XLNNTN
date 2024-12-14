@@ -1,96 +1,151 @@
 import re
 import pandas as pd
-from textblob import TextBlob
 import ast
+import spacy
+from textblob import TextBlob
+from sklearn.metrics import accuracy_score, classification_report
 
-# Tiền xử lý bình luận
-def preprocess_comment(comment):
-    comment = comment.lower()
-    comment = re.sub(r"[^\w\s]", "", comment)  # Loại bỏ dấu câu
-    return comment
+class AdvancedNLPEvaluator:
+    def __init__(self, model_name='en_core_web_trf'):
+        """
+        Initialize with a more comprehensive NLP pipeline
+        Using a larger transformer-based model for better accuracy
+        """
+        self.nlp = spacy.load(model_name)
+    
+    def preprocess_comment(self, comment):
+        """
+        Enhanced preprocessing to handle more complex text cleaning
+        """
+        # Convert to lowercase
+        comment = comment.lower()
+        
+        # Remove special characters and extra whitespaces
+        comment = re.sub(r'[^a-zA-Z0-9\s]', '', comment)
+        comment = re.sub(r'\s+', ' ', comment).strip()
+        
+        return comment
+    
+    def load_golden_data(self, file_path):
+        """
+        Load golden data with more robust error handling
+        """
+        try:
+            df = pd.read_csv(file_path)
+            golden_data = []
+            
+            for _, row in df.iterrows():
+                try:
+                    # Safely evaluate POS and dependencies
+                    gold_pos = ast.literal_eval(row['gold_pos']) if pd.notna(row['gold_pos']) else []
+                    gold_dependencies = ast.literal_eval(row['gold_dependencies']) if pd.notna(row['gold_dependencies']) else []
+                    
+                    golden_data.append({
+                        "sentence": row['sentence'],
+                        "gold_pos": gold_pos,
+                        "gold_dependencies": gold_dependencies
+                    })
+                except (SyntaxError, ValueError) as e:
+                    print(f"Error processing row: {e}")
+            
+            return golden_data
+        except Exception as e:
+            print(f"Error loading golden data: {e}")
+            return []
+    
+    def align_gold_pos(self, gold_pos, tokens):
+        """
+        More robust alignment of POS tags
+        """
+        aligned_pos = []
+        for i, token in enumerate(tokens):
+            if i < len(gold_pos):
+                aligned_pos.append((token.text, gold_pos[i][1]))
+            else:
+                aligned_pos.append((token.text, 'UNKNOWN'))
+        return aligned_pos
+    
+    def evaluate_accuracy(self, golden_data):
+        """
+        Comprehensive accuracy evaluation with more detailed metrics
+        """
+        all_gold_pos_tags = []
+        all_predicted_pos_tags = []
+        
+        total_pos_tags = 0
+        correct_pos_tags = 0
+        total_dependencies = 0
+        correct_uas = 0
+        correct_las = 0
+        
+        for data in golden_data:
+            # Preprocess sentence
+            sentence = self.preprocess_comment(data["sentence"])
+            doc = self.nlp(sentence)
+            
+            # POS Tagging
+            predicted_pos = [(token.text, token.tag_) for token in doc]
+            gold_pos = self.align_gold_pos(data["gold_pos"], doc)
+            
+            # Collect tags for comprehensive evaluation
+            all_gold_pos_tags.extend([tag for _, tag in gold_pos])
+            all_predicted_pos_tags.extend([tag for _, tag in predicted_pos])
+            
+            # Calculate POS accuracy
+            total_pos_tags += len(gold_pos)
+            correct_pos_tags += sum(1 for i in range(len(gold_pos)) if gold_pos[i] == predicted_pos[i])
+            
+            # Dependency Parsing
+            predicted_dependencies = [(token.head.text, token.text, token.dep_) for token in doc]
+            gold_dependencies = data["gold_dependencies"]
+            
+            total_dependencies += len(gold_dependencies)
+            
+            for gold_dep in gold_dependencies:
+                if gold_dep[:2] in [(dep[0], dep[1]) for dep in predicted_dependencies]:
+                    correct_uas += 1
+                if gold_dep in predicted_dependencies:
+                    correct_las += 1
+        
+        # Calculate metrics
+        pos_accuracy = correct_pos_tags / total_pos_tags if total_pos_tags > 0 else 0
+        uas = correct_uas / total_dependencies if total_dependencies > 0 else 0
+        las = correct_las / total_dependencies if total_dependencies > 0 else 0
+        
+        # Detailed POS tagging report
+        pos_classification_report = classification_report(
+            all_gold_pos_tags, 
+            all_predicted_pos_tags
+        )
+        
+        return {
+            'pos_accuracy': pos_accuracy,
+            'uas': uas,
+            'las': las,
+            'pos_classification_report': pos_classification_report
+        }
 
-# Đọc file CSV chứa dữ liệu đánh giá
-def load_golden_data(file_path):
-    df = pd.read_csv(file_path)
-    golden_data = []
-    for _, row in df.iterrows():
-        # Chuyển đổi gold_pos và gold_dependencies từ chuỗi thành danh sách
-        gold_pos = ast.literal_eval(row['gold_pos'])
-        gold_dependencies = ast.literal_eval(row['gold_dependencies'])
-        golden_data.append({
-            "sentence": row['sentence'],
-            "gold_pos": gold_pos,
-            "gold_dependencies": gold_dependencies
-        })
-    return golden_data
+def main():
+    # File path to your golden data
+    file_path = "generated_golden_data.csv"
+    
+    # Initialize evaluator
+    evaluator = AdvancedNLPEvaluator()
+    
+    # Load golden data
+    golden_data = evaluator.load_golden_data(file_path)
+    
+    # Evaluate accuracy
+    results = evaluator.evaluate_accuracy(golden_data)
+    
+    # Print results
+    print("Accuracy Metrics:")
+    print(f"POS Accuracy: {results['pos_accuracy']:.2f}")
+    print(f"UAS: {results['uas']:.2f}")
+    print(f"LAS: {results['las']:.2f}")
+    
+    print("\nPOS Classification Report:")
+    print(results['pos_classification_report'])
 
-# Phân tích cảm xúc bằng TextBlob
-def analyze_sentiment_with_textblob(comment):
-    blob = TextBlob(comment)
-    polarity = blob.sentiment.polarity  # Độ phân cực (-1 đến 1)
-    subjectivity = blob.sentiment.subjectivity  # Tính chủ quan (0 đến 1)
-    sentiment = "Neutral"
-    if polarity > 0:
-        sentiment = "Positive"
-    elif polarity < 0:
-        sentiment = "Negative"
-    return polarity, subjectivity, sentiment
-
-# Tính độ chính xác POS, UAS, LAS
-def evaluate_accuracy(golden_data):
-    total_pos_tags = 0
-    correct_pos_tags = 0
-    total_dependencies = 0
-    correct_uas = 0
-    correct_las = 0
-
-    for data in golden_data:
-        # Tiền xử lý câu
-        sentence = preprocess_comment(data["sentence"])
-        blob = TextBlob(sentence)
-
-        # Lấy POS tagging từ TextBlob
-        predicted_pos = blob.tags
-        gold_pos = data["gold_pos"]
-
-        # Tính POS Accuracy
-        total_pos_tags += len(gold_pos)
-        correct_pos_tags += sum(1 for i in range(len(gold_pos)) if i < len(predicted_pos) and gold_pos[i] == predicted_pos[i])
-
-        # Giả lập dependency parsing của TextBlob (không sẵn có mặc định)
-        predicted_dependencies = data["gold_dependencies"]  # Dùng gold_dependencies làm giả lập
-
-        # Tính UAS và LAS
-        gold_dependencies = data["gold_dependencies"]
-        total_dependencies += len(gold_dependencies)
-        for gold_dep in gold_dependencies:
-            if gold_dep[:2] in [(dep[0], dep[1]) for dep in predicted_dependencies]:
-                correct_uas += 1
-            if gold_dep in predicted_dependencies:
-                correct_las += 1
-
-    # Kết quả
-    pos_accuracy = correct_pos_tags / total_pos_tags if total_pos_tags > 0 else 0
-    uas = correct_uas / total_dependencies if total_dependencies > 0 else 0
-    las = correct_las / total_dependencies if total_dependencies > 0 else 0
-
-    return pos_accuracy, uas, las
-
-# Đường dẫn đến file CSV
-file_path = "golden_data.csv"  # Thay bằng đường dẫn thực tế nếu khác
-
-# Tải dữ liệu đánh giá từ file CSV
-golden_data = load_golden_data(file_path)
-
-# Hiển thị kết quả cảm xúc và đánh giá độ chính xác
-for data in golden_data:
-    polarity, subjectivity, sentiment = analyze_sentiment_with_textblob(data["sentence"])
-    print(f"Comment: {data['sentence']}")
-    print(f"Polarity: {polarity}, Subjectivity: {subjectivity}, Sentiment: {sentiment}")
-    print("-" * 50)
-
-# Tính toán độ chính xác
-pos_accuracy, uas, las = evaluate_accuracy(golden_data)
-print(f"POS Accuracy: {pos_accuracy:.2f}")
-print(f"UAS: {uas:.2f}")
-print(f"LAS: {las:.2f}")
+if __name__ == "__main__":
+    main()
